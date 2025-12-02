@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Auth Service Test UI</title>
+  <style>
+    body{font-family:Segoe UI, Arial, sans-serif;margin:20px;max-width:900px}
+    .card{border:1px solid #ddd;padding:16px;margin:8px 0;border-radius:6px}
+    label{display:block;margin:6px 0 2px}
+    input, select, button, textarea{font-size:14px}
+    input, select{width:100%;padding:8px}
+    textarea{width:100%;height:120px;margin-top:8px}
+    .row{display:flex;gap:8px;flex-wrap:wrap}
+    button{padding:8px 12px;cursor:pointer}
+    code{background:#f3f3f3;padding:2px 4px;border-radius:4px}
+  </style>
+</head>
+<body>
+  <h2>Auth Service — Interface de test</h2>
+
+  <div class="card">
+    <strong>Server</strong>
+    <div>Base URL: <code id="baseUrl">http://localhost:3000</code></div>
+    <div style="margin-top:8px" class="row">
+      <button id="btnPing">Ping /auth/ping</button>
+      <button id="btnClear">Clear token</button>
+      <button id="btnShowToken">Show saved token</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <strong>Register</strong>
+
+    <label>Email</label>
+    <input id="regEmail" placeholder="admin@univ.com" />
+  <div class="card">
+    <strong>Raw response</strong>
+    <textarea id="resp" readonly></textarea>
+  </div>
+
+  <script>
+    const base = document.getElementById('baseUrl').textContent.trim();
+
+    const out = (v)=>{
+      document.getElementById('resp').value =
+        (typeof v === 'string') ? v : JSON.stringify(v,null,2);
+    };
+
+    const setToken = (t)=>{
+      if(t){
+        localStorage.setItem('auth_token', t);
+        document.getElementById('tokenArea').value = t;
+      } else {
+        localStorage.removeItem('auth_token');
+        document.getElementById('tokenArea').value = '';
+      }
+    };
+
+    const getToken = ()=> localStorage.getItem('auth_token') || '';
+
+    // Ping
+    document.getElementById('btnPing').onclick = async ()=>{
+      try{
+        const r = await fetch(base + '/auth/ping');
+        out(await r.text());
+      }catch(e){ out('Error: ' + e.message); }
+    };
+
+    // Register (read raw text first then try JSON — ensures plain 'registered' shows)
+    document.getElementById('btnRegister').onclick = async ()=>{
+      const email = document.getElementById('regEmail').value.trim();
+      const password = document.getElementById('regPassword').value.trim();
+      const role = document.getElementById('regRole').value;
+
+      try{
+        const res = await fetch(base + '/auth/register', {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ email, password, role })
+        });
+
+        const txt = await res.text();
+        let parsed = null;
+        try{ parsed = JSON.parse(txt); }catch(e){ parsed = null; }
+
+        // if parsed is empty object, prefer raw text
+        if(parsed && typeof parsed === 'object' && Object.keys(parsed).length === 0){
+          out({httpStatus: res.status, response: txt});
+        } else if(parsed){
+          out({httpStatus: res.status, response: parsed});
+        } else {
+          out({httpStatus: res.status, response: txt});
+        }
+      }catch(e){ out('Error: ' + e.message); }
+    };
+
+    // Login
+    document.getElementById('btnLogin').onclick = async ()=>{
+      const email = document.getElementById('loginEmail').value.trim();
+      const password = document.getElementById('loginPassword').value.trim();
+
+      try{
+        const res = await fetch(base + '/auth/login', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ email, password })
+        });
+
+        const txt = await res.text();
+        let parsed = null;
+        try{ parsed = JSON.parse(txt); }catch(e){ parsed = null; }
+
+        if(parsed && typeof parsed === 'object' && Object.keys(parsed).length === 0){
+          out({httpStatus: res.status, response: txt});
+        } else if(parsed){
+          out({httpStatus: res.status, response: parsed});
+          if(parsed.token) setToken(parsed.token);
+        } else {
+          out({httpStatus: res.status, response: txt});
+          // try to extract token if server returned text containing it
+          const m = txt.match(/eyJ[\w-_.]+\.[\w-_.]+\.[\w-_.]+/);
+          if(m) setToken(m[0]);
+        }
+      }catch(e){ out('Error: ' + e.message); }
+    };
+
+    // Validate token
+    document.getElementById('btnValidate').onclick = async ()=>{
+      const token = getToken();
+      if(!token){ out('No token stored. Login first.'); return; }
+
+      try{
+        const res = await fetch(base + '/auth/validate', {
+          method:'GET',
+          headers:{ Authorization: 'Bearer ' + token }
+        });
+
+        const txt = await res.text();
+        let parsed = null;
+        try{ parsed = JSON.parse(txt); }catch(e){ parsed = null; }
+        if(parsed && typeof parsed === 'object' && Object.keys(parsed).length === 0){
+          out({httpStatus: res.status, response: txt});
+        } else if(parsed){
+          out({httpStatus: res.status, response: parsed});
+        } else {
+          out({httpStatus: res.status, response: txt});
+        }
+      }catch(e){ out('Error: ' + e.message); }
+    };
+
+    document.getElementById('btnShowToken').onclick = ()=>{
+      document.getElementById('tokenArea').value = getToken();
+      out('token affiché');
+    };
+
+    document.getElementById('btnClear').onclick = ()=>{
+      setToken(null);
+      out('token cleared');
+    };
+
+    document.getElementById('btnCopy').onclick = async ()=>{
+      const t = getToken();
+      if(!t){ out('no token to copy'); return; }
+      try{
+        await navigator.clipboard.writeText(t);
+        out('token copied to clipboard');
+      }catch(e){ out('copy failed: '+e.message); }
+    };
+
+    // Valeurs par défaut
+    document.getElementById('regEmail').value = 'admin@univ.com';
+    document.getElementById('regPassword').value = '1234';
+    document.getElementById('regRole').value = 'ADMIN';
+    document.getElementById('loginEmail').value = 'admin@univ.com';
+    document.getElementById('loginPassword').value = '1234';
+    document.getElementById('tokenArea').value = getToken();
+  </script>
+      if(!token){ out('No token stored. Login first.'); return; }
+
+      try{
+        const res = await fetch(base + '/auth/validate', {
+          method:'GET',
+          headers:{ Authorization: 'Bearer ' + token }
+        });
+
+        const isJson = (res.headers.get('content-type')||'').includes('application/json');
+        const data = isJson ? await res.json() : await res.text();
+        out(data);
+      }catch(e){ out('Error: ' + e.message); }
+    };
+
+    document.getElementById('btnShowToken').onclick = ()=>{
+      document.getElementById('tokenArea').value = getToken();
+      out('token affiché');
+    };
+
+    document.getElementById('btnClear').onclick = ()=>{
+      setToken(null);
+      out('token cleared');
+    };
+
+    document.getElementById('btnCopy').onclick = async ()=>{
+      const t = getToken();
+      if(!t){ out('no token to copy'); return; }
+      try{
+        await navigator.clipboard.writeText(t);
+        out('token copied to clipboard');
+      }catch(e){ out('copy failed: '+e.message); }
+    };
+
+    // Valeurs par défaut
+    document.getElementById('regEmail').value = 'admin@univ.com';
+    document.getElementById('regPassword').value = '1234';
+    document.getElementById('regRole').value = 'ADMIN';
+    document.getElementById('loginEmail').value = 'admin@univ.com';
+    document.getElementById('loginPassword').value = '1234';
+    document.getElementById('tokenArea').value = getToken();
+  </script>
+</body>
+</html>
